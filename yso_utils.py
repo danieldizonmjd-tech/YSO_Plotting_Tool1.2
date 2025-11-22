@@ -1,0 +1,82 @@
+import pandas as pd
+import numpy as np
+from pathlib import Path
+from typing import List
+
+def parse_mrt_file(filepath: str) -> pd.DataFrame:
+    """
+    Parse MRT table format for different paper sources.
+    Handles Papers B & C format (Tab-separated with J/L prefixed objects).
+    """
+    data = []
+    with open(filepath, 'r') as f:
+        lines = f.readlines()
+    
+    for line in lines:
+        if line.startswith('J') or line.startswith('L'):
+            parts = line.split()
+            if len(parts) >= 16:
+                try:
+                    data.append({
+                        'Objname': parts[0],
+                        'RAdeg': float(parts[1]),
+                        'DEdeg': float(parts[2]),
+                        'SED_SLOPE': float(parts[3]) if parts[3] != '?' else np.nan,
+                        'YSO_CLASS': parts[4],
+                        'Number': int(parts[5]),
+                        'W2magMean': float(parts[6]),
+                        'W2magMed': float(parts[7]),
+                        'sig_W2Flux': float(parts[8]),
+                        'err_W2Flux': float(parts[9]),
+                        'delW2mag': float(parts[10]),
+                        'Period': float(parts[11]),
+                        'FLP_LSP_BOOT': float(parts[12]),
+                        'slope': float(parts[13]),
+                        'e_slope': float(parts[14]),
+                        'r_value': float(parts[15]),
+                        'LCType': parts[-1] if len(parts) > 21 else 'Unknown'
+                    })
+                except (ValueError, IndexError):
+                    continue
+    
+    return pd.DataFrame(data)
+
+def compute_correlation_matrix(df: pd.DataFrame, columns: List[str] = None, standardize: bool = True) -> pd.DataFrame:
+    """
+    Compute Pearson correlation matrix for specified columns.
+    Handles NaN values by dropping rows with missing data.
+    
+    Args:
+        df: DataFrame with data
+        columns: Columns to correlate. If None, uses all numeric columns
+        standardize: If True, standardize (z-score) columns before correlation to prevent
+                   variables with large scales from dominating
+    """
+    if columns is None:
+        columns = df.select_dtypes(include=[np.number]).columns.tolist()
+    
+    subset = df[columns].dropna()
+    
+    if standardize:
+        subset = (subset - subset.mean()) / subset.std()
+    
+    return subset.corr()
+
+def categorize_variability(df: pd.DataFrame, col: str = 'delW2mag') -> pd.Series:
+    """
+    Categorize sources by variability amplitude.
+    Low: < 0.2 mag, Medium: 0.2-0.5 mag, High: > 0.5 mag
+    """
+    categories = []
+    for val in df[col]:
+        if pd.isna(val):
+            categories.append('Unknown')
+        elif val < 0.2:
+            categories.append('Low')
+        elif val < 0.5:
+            categories.append('Medium')
+        else:
+            categories.append('High')
+    return pd.Series(categories, index=df.index)
+
+
